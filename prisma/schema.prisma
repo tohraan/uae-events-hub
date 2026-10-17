@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Event {
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  shortDescription String?
+  url             String    @unique
+  source          String    // e.g. "eventbrite", "meetup", "luma", "manual"
+  category        String?   // "hackathon", "meetup", "workshop", "conference", "webinar"
+  tags            String?   // JSON array stored as string: ["AI","SaaS","Startup"]
+  startDate       DateTime
+  endDate         DateTime?
+  timezone        String?   @default("Asia/Dubai")
+  location        String?   // City / area
+  venue           String?   // Venue name
+  address         String?   // Full address
+  isOnline        Boolean   @default(false)
+  onlineUrl       String?
+  registrationUrl String?
+  registrationDeadline DateTime?
+  price           String?   // "Free", "AED 100", "Paid"
+  organizer       String?
+  organizerUrl    String?
+  thumbnailUrl    String?
+  attendeeCount   Int?
+  capacity        Int?
+  isFeatured      Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  llmSummary      String?   // Pre-generated LLM-optimized summary
+  scrapedAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+
+  @@index([startDate])
+  @@index([category])
+  @@index([source])
+  @@index([isActive])
+}
+
+model ScrapeLog {
+  id           String   @id @default(cuid())
+  source       String
+  status       String   // "success", "error", "partial"
+  eventsFound  Int      @default(0)
+  eventsNew    Int      @default(0)
+  eventsUpdated Int     @default(0)
+  durationMs   Int?
+  error        String?
+  createdAt    DateTime @default(now())
+}
+
+model ScraperSource {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  url         String
+  isEnabled   Boolean  @default(true)
+  lastRunAt   DateTime?
+  lastStatus  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

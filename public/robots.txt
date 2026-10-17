@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Allow: /api/events
+Allow: /api/events.txt
+Allow: /api/feed.ics
+Allow: /api/health
+
+# This platform is designed to be bot-friendly.
+# All event data is freely available via our open API:
+# - REST API: /api/events
+# - iCal Feed: /api/feed.ics
+# - LLM Text: /api/events.txt
+# - Health: /api/health
+
+Sitemap: /sitemap.xml

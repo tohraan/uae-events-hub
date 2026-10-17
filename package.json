@@ -1,0 +1,40 @@
+{
+  "name": "uae-events-hub",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:seed": "curl -s http://localhost:3000/api/scrape",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "date-fns": "^4.4.0",
+    "ical-generator": "^11.1.2",
+    "next": "16.4.2",
+    "node-ical": "^0.27.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "uuid": "^14.0.3"
+  },
+  "devDependencies": {
+    "@prisma/client": "^5.22.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "prisma": "^5.22.0",
+    "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "prisma@5.22.0": true
+  }
+}
