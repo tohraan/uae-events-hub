@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    ports: ["3000:3000"]
+    environment:
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-change-me}
+    volumes: ["events-data:/data"]
+volumes:
+  events-data:

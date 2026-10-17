@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# UAE Events Hub
 
-## Getting Started
+An open, agent-friendly index of **tech, AI, startup and hackathon events in the UAE**, collected from Eventbrite, Luma, Meetup and Hub71. Use it as a website, a REST API, a calendar feed, plain text for LLM context, or an MCP server.
 
-First, run the development server:
+Nothing is invented: if a source does not publish a price, an end time or an organizer, the field is `null` (or omitted in text output).
+
+## Quickstart
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <this repo> && cd uae-events-hub
+cp .env.example .env
+npm install
+npm run db:push      # create the SQLite database
+npm run scrape       # pull live events (about 30 s)
+npm run dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Docker: `docker compose up --build`, then `docker compose exec app npm run scrape`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Use it
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Surface | URL | For |
+|---|---|---|
+| MCP server | `/api/mcp` | AI agents. `claude mcp add --transport http uae-events http://localhost:3000/api/mcp` |
+| REST | `/api/events` | Apps. Filters: `q category tag city source isOnline from to updatedSince sort order page limit` |
+| OpenAPI 3.1 | `/openapi.json` | Generating clients, agent tool definitions |
+| Text for LLMs | `/api/events.txt`, `/api/events/:id/llm` | Pasting into context. Same filters as REST |
+| `llms.txt` | `/llms.txt` | Agent discovery |
+| Calendar | `/api/feed.ics`, `/api/events/:id/ics` | Google / Apple / Outlook subscribe by URL |
+| Freshness | `/api/health` | Per-source last sync and errors |
 
-## Learn More
+MCP tools: `search_events`, `get_event`, `list_hackathons`, `data_status`.
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+curl "http://localhost:3000/api/events?category=hackathon&city=Dubai"
+curl "http://localhost:3000/api/events?updatedSince=2026-10-01T00:00:00Z&sort=updatedAt"   # incremental sync
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Timestamps are ISO 8601 UTC; display in Asia/Dubai (UTC+4). `startTimeKnown: false` means the source gave only a date (Eventbrite listings, Hub71), so `startDate` is Dubai midnight and the event is treated as all-day.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Data sources, honestly
 
-## Deploy on Vercel
+| Source | Gives | Limits |
+|---|---|---|
+| Luma | Dubai city page: exact times, venue, coordinates, price (free flag), host | Dubai only; first page of results |
+| Eventbrite | Listing pages for tech / hackathon / startup / AI | Date only (no time), no price |
+| Meetup | A fixed list of groups (`src/lib/sources/meetup.ts`) | Only groups you list; many have no upcoming events |
+| Hub71 | Abu Dhabi events page | Date only; the page is mostly past sessions, which are dropped |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+These are HTML scrapers over public pages, not official APIs. Layouts change; when one does, the adapter throws and `/api/health` shows the error instead of silently returning nothing. Respect each site's terms and be gentle: the default user agent identifies this project, and requests are spaced out.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Keeping data fresh
+
+`npm run scrape` once, or schedule `POST /api/scrape` (header `Authorization: Bearer $ADMIN_API_KEY`) every few hours. `.github/workflows/scrape.yml` does this against a deployed URL. Events a source stops listing are hidden after 36 h.
+
+## Deploying
+
+Default storage is SQLite, which needs a persistent disk (Docker volume, a VPS, Fly/Railway volume). It does **not** work on serverless hosts such as Vercel. For those, switch `provider` in `prisma/schema.prisma` to `postgresql`, point `DATABASE_URL` at Postgres, and run `prisma db push`. Set `ADMIN_API_KEY` and `NEXT_PUBLIC_BASE_URL` in production; without a key `/api/scrape` refuses to run.
+
+## Development
+
+```bash
+npm test            # parsers, classifier, calendar output, search
+npm run typecheck
+npm run build
+```
+
+Adding a source takes one file: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+MIT licensed.

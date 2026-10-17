@@ -8,63 +8,63 @@ datasource db {
 }
 
 model Event {
-  id              String    @id @default(cuid())
-  title           String
-  description     String?
-  shortDescription String?
-  url             String    @unique
-  source          String    // e.g. "eventbrite", "meetup", "luma", "manual"
-  category        String?   // "hackathon", "meetup", "workshop", "conference", "webinar"
-  tags            String?   // JSON array stored as string: ["AI","SaaS","Startup"]
-  startDate       DateTime
-  endDate         DateTime?
-  timezone        String?   @default("Asia/Dubai")
-  location        String?   // City / area
-  venue           String?   // Venue name
-  address         String?   // Full address
-  isOnline        Boolean   @default(false)
-  onlineUrl       String?
-  registrationUrl String?
+  id                   String    @id @default(cuid())
+  title                String
+  description          String?
+  shortDescription     String?
+  url                  String    @unique
+  source               String // adapter id: "eventbrite", "luma", "meetup", "hub71", "manual"
+  category             String // see EVENT_CATEGORIES in src/types
+  tags                 String    @default("[]") // JSON array, e.g. ["AI","Startup"]
+  startDate            DateTime
+  endDate              DateTime?
+  // false when the source only published a calendar date; startDate is then
+  // midnight Asia/Dubai and clients should not display a time.
+  startTimeKnown       Boolean   @default(true)
+  timezone             String    @default("Asia/Dubai")
+  city                 String? // "Dubai", "Abu Dhabi", "Sharjah", ...
+  location             String? // human-readable "City, UAE"
+  venue                String?
+  address              String?
+  latitude             Float?
+  longitude            Float?
+  isOnline             Boolean   @default(false)
+  onlineUrl            String?
+  registrationUrl      String?
   registrationDeadline DateTime?
-  price           String?   // "Free", "AED 100", "Paid"
-  organizer       String?
-  organizerUrl    String?
-  thumbnailUrl    String?
-  attendeeCount   Int?
-  capacity        Int?
-  isFeatured      Boolean   @default(false)
-  isActive        Boolean   @default(true)
-  llmSummary      String?   // Pre-generated LLM-optimized summary
-  scrapedAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  createdAt       DateTime  @default(now())
+  price                String? // as published: "Free", "AED 100"; null when the source did not say
+  organizer            String?
+  organizerUrl         String?
+  thumbnailUrl         String?
+  attendeeCount        Int?
+  capacity             Int?
+  isFeatured           Boolean   @default(false)
+  isActive             Boolean   @default(true)
+  llmSummary           String?
+  scrapedAt            DateTime  @default(now()) // first time we saw it
+  lastSeenAt           DateTime  @default(now()) // most recent scrape that returned it
+  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime  @default(now())
 
   @@index([startDate])
   @@index([category])
   @@index([source])
+  @@index([city])
   @@index([isActive])
+  @@index([updatedAt])
 }
 
 model ScrapeLog {
-  id           String   @id @default(cuid())
-  source       String
-  status       String   // "success", "error", "partial"
-  eventsFound  Int      @default(0)
-  eventsNew    Int      @default(0)
-  eventsUpdated Int     @default(0)
-  durationMs   Int?
-  error        String?
-  createdAt    DateTime @default(now())
-}
+  id            String   @id @default(cuid())
+  source        String
+  status        String // "success", "error"
+  eventsFound   Int      @default(0)
+  eventsNew     Int      @default(0)
+  eventsUpdated Int      @default(0)
+  eventsSkipped Int      @default(0)
+  durationMs    Int?
+  error         String?
+  createdAt     DateTime @default(now())
 
-model ScraperSource {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  displayName String
-  url         String
-  isEnabled   Boolean  @default(true)
-  lastRunAt   DateTime?
-  lastStatus  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  @@index([createdAt])
 }

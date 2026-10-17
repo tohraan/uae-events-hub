@@ -1,3 +1,4 @@
+/** An event as returned by every API surface (REST, MCP, feeds). */
 export interface Event {
   id: string
   title: string
@@ -5,14 +6,18 @@ export interface Event {
   shortDescription: string | null
   url: string
   source: string
-  category: string | null
+  category: string
   tags: string[]
   startDate: string
   endDate: string | null
-  timezone: string | null
+  startTimeKnown: boolean
+  timezone: string
+  city: string | null
   location: string | null
   venue: string | null
   address: string | null
+  latitude: number | null
+  longitude: number | null
   isOnline: boolean
   onlineUrl: string | null
   registrationUrl: string | null
@@ -24,38 +29,17 @@ export interface Event {
   attendeeCount: number | null
   capacity: number | null
   isFeatured: boolean
-  isActive: boolean
   llmSummary: string | null
   scrapedAt: string
+  lastSeenAt: string
   updatedAt: string
   createdAt: string
-}
-
-export interface EventFilters {
-  category?: string
-  tags?: string[]
-  source?: string
-  search?: string
-  dateFrom?: string
-  dateTo?: string
-  isOnline?: boolean
-  page?: number
-  limit?: number
-  sort?: 'startDate' | 'createdAt' | 'updatedAt'
-  order?: 'asc' | 'desc'
-}
-
-export interface ApiResponse<T> {
-  success: boolean
-  data: T
-  meta?: {
-    total: number
-    page: number
-    limit: number
-    pages: number
-    generatedAt: string
+  links: {
+    page: string
+    json: string
+    llm: string
+    ics: string
   }
-  error?: string
 }
 
 export interface ScraperResult {
@@ -63,10 +47,16 @@ export interface ScraperResult {
   eventsFound: number
   eventsNew: number
   eventsUpdated: number
+  eventsSkipped: number
   durationMs: number
   error?: string
 }
 
+/**
+ * What a source adapter hands to ingest. Only set a field when the source
+ * actually published it: ingest never invents values, and an absent field is
+ * stored as null so clients can tell "unknown" from a real value.
+ */
 export interface RawEvent {
   title: string
   description?: string
@@ -76,9 +66,14 @@ export interface RawEvent {
   tags?: string[]
   startDate: Date
   endDate?: Date
+  /** Defaults to true. Set false when only a calendar date was published. */
+  startTimeKnown?: boolean
+  city?: string
   location?: string
   venue?: string
   address?: string
+  latitude?: number
+  longitude?: number
   isOnline?: boolean
   onlineUrl?: string
   registrationUrl?: string
@@ -97,46 +92,19 @@ export const EVENT_CATEGORIES = [
   'workshop',
   'conference',
   'webinar',
-  'summit',
-  'bootcamp',
   'networking',
   'demo-day',
   'other',
 ] as const
 
-export const EVENT_SOURCES = [
-  'eventbrite',
-  'meetup',
-  'luma',
-  'linkedin',
-  'gitex',
-  'hub71',
-  'adgm',
-  'difc',
-  'dubai-future',
-  'manual',
-  'other',
-] as const
+export type EventCategory = (typeof EVENT_CATEGORIES)[number]
 
-export const TECH_TAGS = [
-  'AI',
-  'Machine Learning',
-  'SaaS',
-  'Startup',
-  'Blockchain',
-  'Web3',
-  'Fintech',
-  'Cloud',
-  'DevOps',
-  'Cybersecurity',
-  'Product',
-  'Design',
-  'Data Science',
-  'IoT',
-  'AR/VR',
-  'HealthTech',
-  'EdTech',
-  'CleanTech',
-  'No-Code',
-  'Developer',
-]
+export const UAE_CITIES = [
+  'Dubai',
+  'Abu Dhabi',
+  'Sharjah',
+  'Ajman',
+  'Ras Al Khaimah',
+  'Fujairah',
+  'Umm Al Quwain',
+] as const

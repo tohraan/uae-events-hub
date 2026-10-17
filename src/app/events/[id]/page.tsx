@@ -1,398 +1,97 @@
-import { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 import Link from 'next/link'
-import { prisma } from '@/lib/db'
-import EventDetailClient from '@/components/EventDetailClient'
+import { notFound } from 'next/navigation'
 import EventCard from '@/components/EventCard'
-import { Event } from '@/types'
+import EventDetailClient from '@/components/EventDetailClient'
+import { baseUrl, getEvent, queryEvents } from '@/lib/events'
+import { daysUntil, formatDay, formatTime, labelCategory } from '@/lib/format'
+import { eventToText } from '@/lib/llm-format'
 
-interface PageProps {
-  params: Promise<{ id: string }>
+export const dynamic = 'force-dynamic'
+
+type Props = { params: Promise<{ id: string }> }
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const e = await getEvent((await params).id)
+  if (!e) return { title: 'Event not found | UAE Events Hub' }
+  const description = e.shortDescription ?? `${labelCategory(e.category)} in ${e.city ?? 'the UAE'} on ${formatDay(e.startDate)}.`
+  return { title: `${e.title} | UAE Events Hub`, description, openGraph: { title: e.title, description, type: 'article' } }
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { id } = await params
-  const event = await prisma.event.findUnique({ where: { id } })
+export default async function EventPage({ params }: Props) {
+  const base = baseUrl()
+  const event = await getEvent((await params).id, base)
+  if (!event) notFound()
 
-  if (!event) {
-    return {
-      title: 'Event Not Found | UAE Tech Events Hub',
-    }
-  }
+  const related = (await queryEvents({ category: event.category, limit: 4 }, base)).events.filter(e => e.id !== event.id).slice(0, 3)
+  const d = daysUntil(event.startDate)
 
-  const dateStr = new Date(event.startDate).toLocaleDateString('en-AE', {
-    dateStyle: 'medium',
-    timeZone: 'Asia/Dubai',
-  })
-
-  return {
-    title: `${event.title} — UAE Tech Events Hub`,
-    description:
-      event.shortDescription ||
-      event.description?.substring(0, 160) ||
-      `${event.title} happening in ${event.location || 'UAE'} on ${dateStr}.`,
-    openGraph: {
-      title: event.title,
-      description:
-        event.shortDescription ||
-        event.description?.substring(0, 160) ||
-        `Live tech & startup event in UAE: ${event.title}`,
-      url: `/events/${event.id}`,
-      type: 'article',
-    },
-  }
-}
-
-export default async function EventDetailPage({ params }: PageProps) {
-  const { id } = await params
-  const event = await prisma.event.findUnique({ where: { id } })
-
-  if (!event || !event.isActive) {
-    notFound()
-  }
-
-  const tags: string[] = (() => {
-    try {
-      return JSON.parse(event.tags)
-    } catch {
-      return []
-    }
-  })()
-
-  // Fetch 3 related events
-  const relatedRaw = await prisma.event.findMany({
-    where: {
-      id: { not: event.id },
-      isActive: true,
-      category: event.category,
-    },
-    orderBy: { startDate: 'asc' },
-    take: 3,
-  })
-
-  const relatedEvents: Event[] = relatedRaw.map(e => ({
-    ...e,
-    startDate: e.startDate.toISOString(),
-    endDate: e.endDate ? e.endDate.toISOString() : null,
-    registrationDeadline: e.registrationDeadline ? e.registrationDeadline.toISOString() : null,
-    scrapedAt: e.scrapedAt.toISOString(),
-    updatedAt: e.updatedAt.toISOString(),
-    createdAt: e.createdAt.toISOString(),
-    tags: (() => {
-      try {
-        return JSON.parse(e.tags)
-      } catch {
-        return []
-      }
-    })(),
-  }))
-
-  const startDateFormatted = new Date(event.startDate).toLocaleDateString('en-AE', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'Asia/Dubai',
-  })
-
-  const startTimeFormatted = new Date(event.startDate).toLocaleTimeString('en-AE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Dubai',
-  })
-
-  const endTimeFormatted = event.endDate
-    ? new Date(event.endDate).toLocaleTimeString('en-AE', {
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Dubai',
-      })
-    : null
-
-  const daysUntil = Math.ceil(
-    (new Date(event.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-  )
-
-  const deadlineFormatted = event.registrationDeadline
-    ? new Date(event.registrationDeadline).toLocaleString('en-AE', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-        timeZone: 'Asia/Dubai',
-      })
-    : null
-
-  // Schema.org JSON-LD
-  const schemaJsonLd = {
+  const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'Event',
     name: event.title,
-    startDate: event.startDate.toISOString(),
-    endDate: event.endDate ? event.endDate.toISOString() : undefined,
-    eventAttendanceMode: event.isOnline
-      ? 'https://schema.org/OnlineEventAttendanceMode'
-      : 'https://schema.org/OfflineEventAttendanceMode',
-    eventStatus: 'https://schema.org/EventScheduled',
+    startDate: event.startTimeKnown ? event.startDate : event.startDate.slice(0, 10),
+    endDate: event.endDate ?? undefined,
+    eventAttendanceMode: event.isOnline ? 'https://schema.org/OnlineEventAttendanceMode' : 'https://schema.org/OfflineEventAttendanceMode',
     location: event.isOnline
-      ? {
-          '@type': 'VirtualLocation',
-          url: event.registrationUrl || event.url,
-        }
-      : {
-          '@type': 'Place',
-          name: event.venue || event.location || 'Dubai, UAE',
-          address: {
-            '@type': 'PostalAddress',
-            streetAddress: event.address || undefined,
-            addressLocality: event.location || 'Dubai',
-            addressCountry: 'AE',
-          },
-        },
-    description: event.description || event.shortDescription || event.title,
-    offers: {
-      '@type': 'Offer',
-      price: event.price && event.price.toLowerCase() === 'free' ? '0' : undefined,
-      priceCurrency: 'AED',
-      url: event.registrationUrl || event.url,
-      availability: 'https://schema.org/InStock',
-    },
-    organizer: {
-      '@type': 'Organization',
-      name: event.organizer || 'UAE Tech Community',
-      url: event.organizerUrl || undefined,
-    },
+      ? { '@type': 'VirtualLocation', url: event.onlineUrl ?? event.url }
+      : { '@type': 'Place', name: event.venue ?? event.city ?? 'UAE', address: { '@type': 'PostalAddress', streetAddress: event.address ?? undefined, addressLocality: event.city ?? undefined, addressCountry: 'AE' } },
+    description: event.description ?? undefined,
+    image: event.thumbnailUrl ?? undefined,
+    url: event.url,
+    organizer: event.organizer ? { '@type': 'Organization', name: event.organizer, url: event.organizerUrl ?? undefined } : undefined,
   }
+
+  const facts: Array<[string, string | null]> = [
+    ['Date', formatDay(event.startDate) + (event.endDate && formatDay(event.endDate) !== formatDay(event.startDate) ? ` – ${formatDay(event.endDate)}` : '')],
+    ['Time', event.startTimeKnown ? `${formatTime(event.startDate)}${event.endDate ? ` – ${formatTime(event.endDate)}` : ''} (Dubai time)` : 'Not published by the organizer'],
+    ['Where', event.isOnline ? 'Online' : [event.venue, event.address ?? event.location].filter(Boolean).join(', ') || null],
+    ['Price', event.price],
+    ['Organizer', event.organizer],
+  ]
 
   return (
     <div className="event-detail-page page-fade-in">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaJsonLd) }}
-      />
-
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
       <div className="detail-container">
-        {/* Navigation Breadcrumbs */}
         <nav className="detail-breadcrumbs" aria-label="Breadcrumb">
-          <Link href="/" className="breadcrumb-link">
-            ← Back to Dashboard
-          </Link>
-          <span className="breadcrumb-sep">/</span>
-          <span className="breadcrumb-category">{event.category.toUpperCase()}</span>
-          <span className="breadcrumb-sep">/</span>
-          <span className="breadcrumb-current">{event.title}</span>
+          <Link href="/" className="breadcrumb-link">← All events</Link>
         </nav>
-
-        {/* Hero Section */}
         <header className="detail-header">
           <div className="detail-badges">
-            <span className={`badge badge-${event.category}`}>
-              {event.category.toUpperCase()}
-            </span>
-            {event.isOnline && <span className="badge badge-online">🌐 ONLINE</span>}
-            {event.price && event.price.toLowerCase() === 'free' && (
-              <span className="badge badge-free">FREE</span>
-            )}
-            <span className="detail-source-badge">
-              Source: <strong>{event.source.toUpperCase()}</strong>
-            </span>
-            <span className="detail-days-badge">
-              {daysUntil === 0
-                ? '⚡ Happening Today'
-                : daysUntil > 0
-                ? `⏳ In ${daysUntil} days`
-                : '✓ Past event'}
-            </span>
+            <span className={`badge badge-${event.category}`}>{labelCategory(event.category)}</span>
+            {event.isOnline && <span className="badge badge-online">Online</span>}
+            <span className="detail-source-badge">via {event.source}</span>
+            <span className="detail-days-badge">{d > 0 ? `In ${d} days` : d === 0 ? 'Today' : 'Started'}</span>
           </div>
-
           <h1 className="detail-title">{event.title}</h1>
-
-          {event.shortDescription && (
-            <p className="detail-lead">{event.shortDescription}</p>
-          )}
-
-          <div className="detail-tags-row">
-            {tags.map(tag => (
-              <span key={tag} className="tag-chip active">
-                #{tag}
-              </span>
-            ))}
-          </div>
+          <div className="detail-tags-row">{event.tags.map(t => <span key={t} className="tag-chip active">{t}</span>)}</div>
         </header>
-
-        {/* Main Grid: Left Details, Right Sidebar */}
         <div className="detail-layout-grid">
-          {/* Main Info Column */}
           <div className="detail-main-col">
-            {/* Quick Facts Card */}
             <div className="detail-card info-grid-card">
-              <div className="info-block">
-                <div className="info-icon">📅</div>
-                <div>
-                  <div className="info-label">Date</div>
-                  <div className="info-val">{startDateFormatted}</div>
-                </div>
-              </div>
-
-              <div className="info-block">
-                <div className="info-icon">⏰</div>
-                <div>
-                  <div className="info-label">Time & Timezone</div>
-                  <div className="info-val">
-                    {startTimeFormatted}
-                    {endTimeFormatted ? ` – ${endTimeFormatted}` : ''}
-                    <span className="info-sub"> (Asia/Dubai, GST)</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="info-block">
-                <div className="info-icon">📍</div>
-                <div>
-                  <div className="info-label">Location / Venue</div>
-                  <div className="info-val">
-                    {event.venue || event.location || 'United Arab Emirates'}
-                  </div>
-                  {event.address && <div className="info-sub">{event.address}</div>}
-                </div>
-              </div>
-
-              <div className="info-block">
-                <div className="info-icon">💰</div>
-                <div>
-                  <div className="info-label">Admission / Pricing</div>
-                  <div className="info-val">{event.price || 'Free / Open RSVP'}</div>
-                </div>
-              </div>
-
-              {event.organizer && (
-                <div className="info-block">
-                  <div className="info-icon">🏢</div>
-                  <div>
-                    <div className="info-label">Organizer</div>
-                    <div className="info-val">
-                      {event.organizerUrl ? (
-                        <a
-                          href={event.organizerUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-link"
-                        >
-                          {event.organizer} ↗
-                        </a>
-                      ) : (
-                        event.organizer
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {deadlineFormatted && (
-                <div className="info-block highlight-deadline">
-                  <div className="info-icon">🚨</div>
-                  <div>
-                    <div className="info-label">Registration Deadline</div>
-                    <div className="info-val text-deadline">{deadlineFormatted}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Extended Description Card */}
-            <div className="detail-card mt-lg">
-              <h2 className="detail-section-heading">About This Event</h2>
-              <div className="detail-body-text">
-                {event.description ? (
-                  event.description.split('\n\n').map((para, i) => (
-                    <p key={i} className="detail-paragraph">
-                      {para}
-                    </p>
-                  ))
-                ) : (
-                  <p className="detail-paragraph text-muted">
-                    No extended description was provided by the original host. Please
-                    visit the official registration page for full speaker agendas and
-                    materials.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Verification & Metadata */}
-            <div className="detail-card meta-specs-card mt-lg">
-              <h3 className="text-sm font-semibold mb-sm">Data Integrity & Verification</h3>
-              <div className="specs-list">
-                <div className="spec-item">
-                  <span className="spec-key">Verified Origin:</span>
-                  <span className="spec-val">
-                    <a
-                      href={event.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-link"
-                    >
-                      {event.url} ↗
-                    </a>
-                  </span>
-                </div>
-                <div className="spec-item">
-                  <span className="spec-key">Platform ID:</span>
-                  <span className="spec-val font-mono">{event.id}</span>
-                </div>
-                <div className="spec-item">
-                  <span className="spec-key">Last Scraped & Synced:</span>
-                  <span className="spec-val">
-                    {new Date(event.scrapedAt).toLocaleString('en-AE', {
-                      timeZone: 'Asia/Dubai',
-                    })}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Action Sidebar */}
-          <aside className="detail-sidebar">
-            <EventDetailClient
-              id={event.id}
-              title={event.title}
-              description={event.description}
-              url={event.url}
-              source={event.source}
-              category={event.category}
-              tags={tags}
-              startDate={event.startDate.toISOString()}
-              endDate={event.endDate ? event.endDate.toISOString() : null}
-              timezone={event.timezone}
-              location={event.location}
-              venue={event.venue}
-              address={event.address}
-              isOnline={event.isOnline}
-              registrationUrl={event.registrationUrl}
-              registrationDeadline={
-                event.registrationDeadline
-                  ? event.registrationDeadline.toISOString()
-                  : null
-              }
-              price={event.price}
-              organizer={event.organizer}
-              organizerUrl={event.organizerUrl}
-              llmSummary={event.llmSummary}
-            />
-          </aside>
-        </div>
-
-        {/* Related Events Section */}
-        {relatedEvents.length > 0 && (
-          <section className="related-events-section mt-2xl">
-            <div className="section-header">
-              <h2 className="section-title">Similar {event.category.toUpperCase()} Events</h2>
-              <span className="section-count">{relatedEvents.length} more upcoming</span>
-            </div>
-            <div className="events-grid">
-              {relatedEvents.map(re => (
-                <EventCard key={re.id} event={re} />
+              {facts.filter(([, v]) => v).map(([k, v]) => (
+                <div key={k} className="info-block"><div><div className="info-label">{k}</div><div className="info-val">{v}</div></div></div>
               ))}
             </div>
+            <div className="detail-card mt-lg">
+              <h2 className="detail-section-heading">About</h2>
+              {event.description
+                ? event.description.split(/\n{2,}/).map((p, i) => <p key={i} className="detail-paragraph">{p}</p>)
+                : <p className="detail-paragraph text-muted">The organizer published no description. See the original listing.</p>}
+              <p className="text-sm text-muted">
+                Source: <a href={event.url} target="_blank" rel="noopener noreferrer" className="text-link">{event.url}</a> · last seen {formatDay(event.lastSeenAt)}
+              </p>
+            </div>
+          </div>
+          <aside className="detail-sidebar">
+            <EventDetailClient event={event} llmText={eventToText(event)} />
+          </aside>
+        </div>
+        {related.length > 0 && (
+          <section className="related-events-section mt-2xl">
+            <h2 className="section-title">More {labelCategory(event.category).toLowerCase()} events</h2>
+            <div className="events-grid">{related.map(r => <EventCard key={r.id} event={r} />)}</div>
           </section>
         )}
       </div>

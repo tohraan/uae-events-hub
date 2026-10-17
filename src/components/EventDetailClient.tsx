@@ -1,216 +1,53 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import type { Event } from '@/types'
 
-interface EventDetailClientProps {
-  id: string
-  title: string
-  description?: string | null
-  url: string
-  source: string
-  category: string
-  tags: string[]
-  startDate: string
-  endDate?: string | null
-  timezone: string
-  location?: string | null
-  venue?: string | null
-  address?: string | null
-  isOnline: boolean
-  registrationUrl?: string | null
-  registrationDeadline?: string | null
-  price?: string | null
-  organizer?: string | null
-  organizerUrl?: string | null
-  llmSummary?: string | null
-}
-
-export default function EventDetailClient({
-  id,
-  title,
-  description,
-  url,
-  source,
-  category,
-  tags,
-  startDate,
-  endDate,
-  timezone,
-  location,
-  venue,
-  address,
-  isOnline,
-  registrationUrl,
-  registrationDeadline,
-  price,
-  organizer,
-  organizerUrl,
-  llmSummary,
-}: EventDetailClientProps) {
-  const [copiedLlm, setCopiedLlm] = useState(false)
-  const [copiedLink, setCopiedLink] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-
-  function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(null), 2500)
+export default function EventDetailClient({ event, llmText }: { event: Event; llmText: string }) {
+  const [copied, setCopied] = useState<string | null>(null)
+  const copy = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(null), 1800)
+    } catch {
+      setCopied('error')
+    }
   }
-
-  // Format dates for Google Calendar
-  const startIso = new Date(startDate).toISOString().replace(/-|:|\.\d\d\d/g, '')
-  const endIso = endDate
-    ? new Date(endDate).toISOString().replace(/-|:|\.\d\d\d/g, '')
-    : new Date(new Date(startDate).getTime() + 2 * 3600000).toISOString().replace(/-|:|\.\d\d\d/g, '')
-
-  const gCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
-    title
-  )}&dates=${startIso}/${endIso}&details=${encodeURIComponent(
-    (description || title) + `\n\nOfficial Link: ${registrationUrl || url}`
-  )}&location=${encodeURIComponent(venue ? `${venue}, ${location || 'Dubai, UAE'}` : location || 'UAE')}&ctz=Asia/Dubai`
-
-  // Format plain text context for LLMs
-  const llmContext = `EVENT: ${title}
-ID: ${id}
-SOURCE: ${source}
-CATEGORY: ${category}
-TAGS: ${tags.join(', ')}
-DATE: ${new Date(startDate).toLocaleString('en-AE', { timeZone: 'Asia/Dubai' })}
-${endDate ? `END: ${new Date(endDate).toLocaleString('en-AE', { timeZone: 'Asia/Dubai' })}\n` : ''}LOCATION: ${venue ? `${venue}, ` : ''}${location || 'Dubai, UAE'}
-${address ? `ADDRESS: ${address}\n` : ''}PRICE: ${price || 'See registration page'}
-${organizer ? `ORGANIZER: ${organizer}\n` : ''}REGISTRATION: ${registrationUrl || url}
-${registrationDeadline ? `REGISTRATION DEADLINE: ${new Date(registrationDeadline).toLocaleString('en-AE', { timeZone: 'Asia/Dubai' })}\n` : ''}
-SUMMARY:
-${llmSummary || description || title}
-
-DESCRIPTION:
-${description || 'No extended description provided.'}`
-
-  function handleCopyLlm() {
-    navigator.clipboard.writeText(llmContext).then(() => {
-      setCopiedLlm(true)
-      showToast('✓ LLM Context copied to clipboard!')
-      setTimeout(() => setCopiedLlm(false), 2000)
-    })
-  }
-
-  function handleCopyShareLink() {
-    navigator.clipboard.writeText(window.location.href).then(() => {
-      setCopiedLink(true)
-      showToast('✓ Event link copied to clipboard!')
-      setTimeout(() => setCopiedLink(false), 2000)
-    })
-  }
-
-  function handleDownloadIcs() {
-    const icsContent = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//UAE Tech Events Hub//EN
-CALSCALE:GREGORIAN
-METHOD:PUBLISH
-BEGIN:VEVENT
-UID:${id}@uae-tech-events
-DTSTAMP:${new Date().toISOString().replace(/-|:|\.\d\d\d/g, '')}
-DTSTART:${startIso}
-DTEND:${endIso}
-SUMMARY:${title.replace(/,/g, '\\,')}
-DESCRIPTION:${(description || title).replace(/\n/g, '\\n').replace(/,/g, '\\,')}
-URL:${registrationUrl || url}
-LOCATION:${(venue ? `${venue}, ${location || ''}` : location || 'Dubai, UAE').replace(/,/g, '\\,')}
-END:VEVENT
-END:VCALENDAR`
-
-    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    showToast('✓ .ics Calendar file downloaded!')
-  }
+  const stamp = (iso: string) => new Date(iso).toISOString().replace(/[-:]|\.\d{3}/g, '')
+  const end = event.endDate ?? new Date(new Date(event.startDate).getTime() + 2 * 3_600_000).toISOString()
+  const gcal =
+    'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+    `&text=${encodeURIComponent(event.title)}&dates=${stamp(event.startDate)}/${stamp(end)}` +
+    `&details=${encodeURIComponent(event.registrationUrl ?? event.url)}` +
+    `&location=${encodeURIComponent([event.venue, event.address ?? event.location].filter(Boolean).join(', '))}`
 
   return (
     <div className="event-detail-actions-panel">
-      {toast && <div className="toast">{toast}</div>}
-
       <div className="action-buttons-group">
-        <a
-          href={registrationUrl || url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn btn-primary btn-lg"
-          id="official-register-btn"
-        >
-          🚀 Register / Official Event Link
+        <a href={event.registrationUrl ?? event.url} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-lg">
+          Register on {event.source}
         </a>
-
-        <a
-          href={gCalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn btn-secondary"
-          title="Add this event to Google Calendar"
-        >
-          📅 Add to Google Calendar
-        </a>
-
-        <button
-          onClick={handleDownloadIcs}
-          className="btn btn-secondary"
-          title="Download iCal (.ics) file for Apple Calendar or Outlook"
-        >
-          📥 Download .ics
-        </button>
-
-        <button
-          onClick={handleCopyShareLink}
-          className="btn btn-secondary"
-          title="Copy direct share link"
-        >
-          {copiedLink ? '✓ Copied' : '🔗 Share Link'}
+        {event.startTimeKnown && (
+          <a href={gcal} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">Add to Google Calendar</a>
+        )}
+        <a href={event.links.ics} className="btn btn-secondary">Download .ics</a>
+        <button className="btn btn-secondary" onClick={() => copy('link', window.location.href)}>
+          {copied === 'link' ? 'Copied' : 'Copy link'}
         </button>
       </div>
-
-      {/* Developer & LLM Context Box */}
       <div className="detail-card llm-box mt-lg">
         <div className="llm-box-header">
-          <div className="llm-box-title">
-            <span>🤖</span>
-            <div>
-              <strong>LLM Context & API Endpoints</strong>
-              <div className="text-xs text-muted">
-                Optimized token-efficient plain text for AI models & agent watchers
-              </div>
-            </div>
-          </div>
-          <button onClick={handleCopyLlm} className="btn btn-primary btn-sm">
-            {copiedLlm ? '✓ Copied for LLM' : '📋 Copy for LLM'}
-          </button>
+          <strong>For AI agents</strong>
+          <button className="btn btn-primary btn-sm" onClick={() => copy('llm', llmText)}>{copied === 'llm' ? 'Copied' : 'Copy as text'}</button>
         </div>
-
-        <pre className="llm-code-preview">{llmContext}</pre>
-
+        <pre className="llm-code-preview">{llmText}</pre>
         <div className="api-quick-links">
-          <span className="text-xs text-muted">Direct Endpoints:</span>
-          <a
-            href={`/api/events/${id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="api-pill-link"
-          >
-            GET /api/events/{id.substring(0, 8)}... (JSON)
-          </a>
-          <a
-            href={`/api/events/${id}/llm`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="api-pill-link"
-          >
-            GET /api/events/{id.substring(0, 8)}.../llm (Text)
-          </a>
+          <a href={event.links.json} target="_blank" rel="noopener noreferrer" className="api-pill-link">JSON</a>
+          <a href={event.links.llm} target="_blank" rel="noopener noreferrer" className="api-pill-link">Text</a>
         </div>
       </div>
+      {copied === 'error' && <p className="text-sm text-muted">Could not access the clipboard.</p>}
     </div>
   )
 }

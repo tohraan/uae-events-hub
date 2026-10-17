@@ -1,66 +1,43 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { seedEvents, runAllScrapers } from '@/lib/scrapers'
+import { checkAdmin } from '@/lib/auth'
+import { runScrapers } from '@/lib/ingest'
+import { ADAPTERS } from '@/lib/sources'
+import { fail, json, preflight } from '@/lib/http-json'
 
-// POST /api/scrape — trigger a scrape run
-// GET /api/scrape — seed initial events (first run)
-export async function POST(request: NextRequest) {
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
+export const OPTIONS = preflight
+
+// POST /api/scrape  {"sources": ["luma"]}  — Authorization: Bearer $ADMIN_API_KEY
+// GET works too so Vercel Cron (which sends GET) can call it.
+async function run(req: Request, body: { sources?: unknown }) {
+  const denied = checkAdmin(req)
+  if (denied) return denied
+  const only = Array.isArray(body.sources) ? body.sources.map(String).filter(s => ADAPTERS.some(a => a.id === s)) : undefined
+  const results = await runScrapers(only)
+  const sum = (k: 'eventsFound' | 'eventsNew' | 'eventsUpdated') => results.reduce((n, r) => n + r[k], 0)
+  return json(
+    {
+      success: results.some(r => !r.error),
+      data: { results, summary: { found: sum('eventsFound'), new: sum('eventsNew'), updated: sum('eventsUpdated') } },
+    },
+    { cache: 'no-store' }
+  )
+}
+
+export async function POST(req: Request) {
   try {
-    // Simple auth check
-    const authHeader = request.headers.get('authorization')
-    const apiKey = process.env.SCRAPE_API_KEY
-    if (apiKey && authHeader !== `Bearer ${apiKey}`) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const body = await request.json().catch(() => ({}))
-    const mode = body.mode ?? 'scrape' // 'scrape' | 'seed'
-
-    if (mode === 'seed') {
-      const result = await seedEvents()
-      return NextResponse.json({
-        success: true,
-        data: { mode: 'seed', ...result },
-        message: `Seeded ${result.eventsNew} new events, updated ${result.eventsUpdated}`,
-      })
-    }
-
-    const results = await runAllScrapers()
-    const totalNew = results.reduce((s, r) => s + r.eventsNew, 0)
-    const totalUpdated = results.reduce((s, r) => s + r.eventsUpdated, 0)
-    const totalFound = results.reduce((s, r) => s + r.eventsFound, 0)
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        mode: 'scrape',
-        results,
-        summary: {
-          totalFound,
-          totalNew,
-          totalUpdated,
-          completedAt: new Date().toISOString(),
-        },
-      },
-    })
+    return await run(req, await req.json().catch(() => ({})))
   } catch (err) {
-    console.error('[API /scrape] Error:', err)
-    return NextResponse.json(
-      { success: false, error: String(err) },
-      { status: 500 }
-    )
+    console.error('[api/scrape]', err)
+    return fail(500, 'Internal server error')
   }
 }
 
-// GET /api/scrape — seed events on first load
-export async function GET(request: NextRequest) {
+export async function GET(req: Request) {
   try {
-    const result = await seedEvents()
-    return NextResponse.json({
-      success: true,
-      data: result,
-      message: `Seeded ${result.eventsNew} new events, updated ${result.eventsUpdated}`,
-    })
+    return await run(req, {})
   } catch (err) {
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
+    console.error('[api/scrape]', err)
+    return fail(500, 'Internal server error')
   }
 }

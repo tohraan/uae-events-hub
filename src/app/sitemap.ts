@@ -1,47 +1,14 @@
-import { MetadataRoute } from 'next'
-import { prisma } from '@/lib/db'
+import type { MetadataRoute } from 'next'
+import { baseUrl, queryEvents } from '@/lib/events'
+
+export const dynamic = 'force-dynamic'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://uaetechevents.com'
-
-  const events = await prisma.event.findMany({
-    where: { isActive: true },
-    select: { id: true, updatedAt: true },
-    orderBy: { startDate: 'asc' },
-  }).catch(() => [])
-
-  const eventUrls = events.map(e => ({
-    url: `${baseUrl}/events/${e.id}`,
-    lastModified: e.updatedAt,
-    changeFrequency: 'daily' as const,
-    priority: 0.8,
-  }))
-
+  const base = baseUrl()
+  const { events } = await queryEvents({ limit: 100 }, base).catch(() => ({ events: [] }))
   return [
-    {
-      url: baseUrl,
-      lastModified: new Date(),
-      changeFrequency: 'hourly',
-      priority: 1,
-    },
-    {
-      url: `${baseUrl}/api/events`,
-      lastModified: new Date(),
-      changeFrequency: 'hourly',
-      priority: 0.9,
-    },
-    {
-      url: `${baseUrl}/api/feed.ics`,
-      lastModified: new Date(),
-      changeFrequency: 'hourly',
-      priority: 0.9,
-    },
-    {
-      url: `${baseUrl}/api/events.txt`,
-      lastModified: new Date(),
-      changeFrequency: 'hourly',
-      priority: 0.8,
-    },
-    ...eventUrls,
+    { url: base, changeFrequency: 'hourly', priority: 1 },
+    { url: `${base}/docs`, changeFrequency: 'weekly', priority: 0.7 },
+    ...events.map(e => ({ url: e.links.page, lastModified: e.updatedAt, changeFrequency: 'daily' as const, priority: 0.8 })),
   ]
 }
